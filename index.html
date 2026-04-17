@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='utf-8' />
+  <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { font-family: sans-serif; }
+    #calendar { max-width: 900px; margin: 40px auto; }
+  </style>
+</head>
+<body>
+  <div id='calendar'></div>
+
+  <script>
+    // 1. 본인의 Supabase 정보로 교체하세요!
+    const SUPABASE_URL = 'https://pumrlqbanuhyphvxsiko.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB1bXJscWJhbnVoeXBodnhzaWtvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNzMyOTIsImV4cCI6MjA5MTk0OTI5Mn0.KuqOJ6WPRsn_JNZ5Fv4yRZaLfOPyPlZMy9fB1cJeKYg';
+    const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // 2. URL에서 user_id 추출 (카톡에서 보낼 ID)
+    const urlParams = new URLSearchParams(window.location.search);
+    const userId = urlParams.get('user_id') || 'guest_user';
+
+    document.addEventListener('DOMContentLoaded', function() {
+      var calendarEl = document.getElementById('calendar');
+      var calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        selectable: true,
+        dateClick: function(info) {
+          const title = prompt('새 일정을 입력하세요:');
+          if (title) {
+            saveEvent(info.dateStr, title);
+          }
+        }
+      });
+      calendar.render();
+    });
+
+    async function saveEvent(date, title) {
+      const { data, error } = await _supabase
+        .from('user_events')
+        .insert([{ user_id: userId, event_date: date, event_name: title }]);
+      
+      if (error) {
+        console.error(error);
+        alert('저장 실패: ' + error.message);
+      } else {
+        alert('일정이 저장되었습니다!');
+      }
+    }
+  </script>
+</body>
+</html>
