@@ -5,23 +5,50 @@
   <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    body { font-family: sans-serif; }
+    body { font-family: sans-serif; text-align: center; }
     #calendar { max-width: 900px; margin: 40px auto; }
+    .notify-banner { background-color: #f8f9fa; padding: 10px; border-bottom: 1px solid #dee2e6; font-size: 14px; }
   </style>
 </head>
 <body>
+
+  <div class="notify-banner">
+    📢 실시간 내일 일정 알림 서비스가 활성화되어 있습니다. 
+    <span id="alarm-status" style="font-weight: bold; color: #dc3545;">(알림 확인 중...)</span>
+  </div>
+
   <div id='calendar'></div>
 
-  <script>
-    // 1. 본인의 Supabase 정보로 교체하세요!
+  <script type="module">
+    // 1. Firebase v10 최신 모듈 가져오기
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging.js";
+
+    // 2. 본인의 Supabase 정보 (기존 정보 그대로 유지)
     const SUPABASE_URL = 'https://pumrlqbanuhyphvxsiko.supabase.co';
     const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB1bXJscWJhbnVoeXBodnhzaWtvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNzMyOTIsImV4cCI6MjA5MTk0OTI5Mn0.KuqOJ6WPRsn_JNZ5Fv4yRZaLfOPyPlZMy9fB1cJeKYg';
     const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    // 2. URL에서 user_id 추출 (카톡에서 보낼 ID)
+    // 3. 발급받으신 찐 파이어베이스 설정값 세팅
+    const firebaseConfig = {
+      apiKey: "AIzaSyB1iD2T6Aq1jP-F784mwIvDxMWKpCNrC14",
+      authDomain: "bugwang-42dee.firebaseapp.com",
+      projectId: "bugwang-42dee",
+      storageBucket: "bugwang-42dee.firebasestorage.app",
+      messagingSenderId: "649361411149",
+      appId: "1:649361411149:web:60863920ad61f3f7e72004",
+      measurementId: "G-EPZX2M9X8R"
+    };
+
+    // Firebase 초기화
+    const app = initializeApp(firebaseConfig);
+    const messaging = getMessaging(app);
+
+    // URL에서 user_id 추출 (기존 동일)
     const urlParams = new URLSearchParams(window.location.search);
     const userId = urlParams.get('user_id') || 'guest_user';
 
+    // 4. 달력 로드 및 초기화 (기존 동일)
     document.addEventListener('DOMContentLoaded', function() {
       var calendarEl = document.getElementById('calendar');
       var calendar = new FullCalendar.Calendar(calendarEl, {
@@ -35,8 +62,16 @@
         }
       });
       calendar.render();
+
+      // 달력이 켜지면 브라우저 알림 권한 유도 자동 실행
+      if (userId !== 'guest_user') {
+        initWebPush(userId);
+      } else {
+        document.getElementById('alarm-status').innerText = "카톡 연동 필요 (Guest)";
+      }
     });
 
+    // 5. 일정 저장 함수 (기존 동일)
     async function saveEvent(date, title) {
       const { data, error } = await _supabase
         .from('user_events')
@@ -47,6 +82,60 @@
         alert('저장 실패: ' + error.message);
       } else {
         alert('일정이 저장되었습니다!');
+      }
+    }
+
+    // 6. [신규] 웹 푸시 권한 요청 및 Supabase 토큰 저장 함수
+    async function initWebPush(uid) {
+      const statusText = document.getElementById('alarm-status');
+      
+      try {
+        if ('serviceWorker' in navigator) {
+          // 배경 일꾼(서비스 워커) 파일 등록
+          const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+          
+          // 브라우저 알림 팝업 창 요청
+          const permission = await Notification.requestPermission();
+          
+          if (permission === 'granted') {
+            // ⚠️ 중요: 발급받으신 본인의 긴 VAPID 키를 아래 'YOUR_VAPID_KEY_HERE' 대신 넣어주세요!
+            const token = await getToken(messaging, { 
+              serviceWorkerRegistration: registration,
+              vapidKey: 'BE9Iu3V8efZxt6efRePfbR-TXvty3wQxN3p3_BJNKihu2A6tF8XQhGKizH4YRKvDP6TKX4iqP61pVc5Jzoq_MLg' 
+            });
+
+            if (token) {
+              console.log('FCM 토큰 발행 성공:', token);
+              
+              // 유저 테이블(user_events 또는 별도 유저맵핑 테이블)에 fcm_token 저장
+              // 여기서는 일정 테이블 구조를 고려해 유저의 푸시 주소를 업데이트/업서트합니다.
+              await saveTokenToSupabase(uid, token);
+              
+              statusText.innerText = "🔔 알림 수신 동의 완료";
+              statusText.style.color = "#28a745";
+            }
+          } else {
+            statusText.innerText = "🔕 알림 차단됨 (설정에서 허용 필요)";
+          }
+        }
+      } catch (err) {
+        console.error('웹 푸시 초기화 실패:', err);
+        statusText.innerText = "❌ 알림 설정 실패";
+      }
+    }
+
+    // 7. [신규] Supabase의 user_events 테이블 혹은 별도 맵핑 테이블에 토큰 업데이트
+    async function saveTokenToSupabase(uid, token) {
+      // 주소록 관리를 위해 user_events 테이블에 fcm_token 기록을 남기거나 업데이트합니다.
+      // 팁: 나중에 파이썬 비서가 이 토큰을 조회해서 메시지를 보낼 수 있게 컬럼이 비어있으면 채우는 로직입니다.
+      const { error } = await _supabase
+        .from('user_events')
+        .upsert({ user_id: uid, fcm_token: token }, { onConflict: 'user_id' });
+
+      if (error) {
+        console.error('Supabase 토큰 저장 실패:', error.message);
+      } else {
+        console.log('Supabase 주소록 동기화 완료!');
       }
     }
   </script>
